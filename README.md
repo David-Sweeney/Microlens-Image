@@ -12,7 +12,7 @@ For example:
 
     python microlens_image.py input.jpg output.jpg
 
-Where input.jpg is in the same directory as the microlens_image.py file.
+Where `input.jpg` is in the same directory as the microlens_image.py file.
 
 The code will then load in the input image, apply a microlensing effect to the middle of it and save the resultant image to the output_image location. 
 
