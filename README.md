@@ -1,6 +1,6 @@
 # Microlens-Image
 
-![Example Image](warped_cat.png)
+![Example Image](warped_cat.jpg)
 
 Creating your own microlensing image is easy! The first step is to make sure your python installation has [numpy](https://numpy.org/install/), [matplotlib](https://matplotlib.org/stable/install/index.html), [astropy](https://www.astropy.org/) and [scipy](https://scipy.org/install/) installed. If that is not the case for you then follow the above links to install them.
 
