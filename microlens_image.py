@@ -1,3 +1,4 @@
+# Finish writing moveFrame function
 import sys
 
 import numpy as np
@@ -8,14 +9,26 @@ import astropy.units as u
 from scipy.interpolate import RegularGridInterpolator
 from skimage.measure import block_reduce
 
+# Make warping image an animation: try mpl.animation (matplotlib.animation)
+# Move BH_centre across image
+import matplotlib.animation as animation
+
 axes_size = 14
 interpolate_value = 0.
-    
+
+# Mass of lensing object   
 M_lens = 8*u.M_sun
+
+#Distance to background source
 D_os = 8*u.kpc
+
+#Distance to lensing object
 D_ol = 4*u.kpc
+
+#Distance between lens and source
 D_ls = D_os - D_ol
 
+# Einstein radius (gravitational lensing angle) in milliarcseconds
 theta_E = np.sqrt((4*cst.G*M_lens)/(cst.c**2) * (D_ls/(D_ol*D_os)))
 theta_E = (theta_E * u.rad).to(u.mas)
 
@@ -33,7 +46,11 @@ def load_image(filepath, downsample=None):
     return im
 
 def lens_to_source_plane(theta, mass, D_L, D_LS):
-    sep = np.linalg.norm(theta, axis=0).to(u.rad).value
+
+    # Angular separation
+    sep = np.linalg.norm(theta, axis=0).to(u.rad).value + 1e-12
+
+    # Graviational lensing formula
     return theta*(1 - (4*cst.G*mass)/(cst.c**2*D_L * sep**2) * (D_LS/D_L))
 
 def get_axes(im):
@@ -108,6 +125,44 @@ def warp_image(im, BH_centre, filepath):
     for multiplier, alpha in zip(multipliers, alphas):
         ax.add_patch(mpl.patches.Circle(BH_centre.to(u.mas).value, radius=1.9*multiplier, alpha=alpha, fill=True, fc='k', ec=None))
     plt.savefig(filepath)
+
+def animateWarping(im, outputPath = "microlensAnimation.gif", nFrames = 100):
+    xs, ys = get_axes(im)
+    interpolators = get_interpolators(im, xs, ys, interpolate_value=0.)
+    extent = np.array([xs.min(), xs.max(), ys.min(), ys.max()])
+    
+    fig, ax = plt.subplots(figsize=(5, 5*im.shape[1]/im.shape[0]), dpi=512)
+    ax.set_xlim(extent[0], extent[1])
+    ax.set_ylim(extent[2], extent[3])
+    ax.axis('off')
+
+    # mesh grid
+    xv, yv = np.meshgrid(xs, ys) * u.mas
+    imDisplay = ax.imshow(np.zeros_like(im), extent=extent, origin='lower')
+
+    def moveFrame(frame):
+
+        # fractional progress of animation
+        fractional = frame / (nFrames - 1)
+
+        # moves warping based on fractional progress
+        xPos = extent[0] + fractional * (extent[1] - extent[0])
+        yPos = 0  # Keep y fixed
+
+        # Position array for black hole
+        BH_centre = np.array([xPos, yPos]) * u.mas
+
+        warped = apply_lensing(BH_centre, interpolators, xv, yv)
+        imDisplay.set_data(warped)
+        return [imDisplay]
+    
+    # calls moveFrame() nFrame times
+    animatedLensing = animation.FuncAnimation(fig, moveFrame, frames=nFrames, blit=True)
+
+    # animatedLensing defaults to using pillow so output file is a gif and not mp4
+    animatedLensing.save(outputPath, fps=30)
+    plt.close(fig)
+    print(f"Animation saved to: {outputPath}")
     
 if __name__ == '__main__':
     assert len(sys.argv) == 3, "Usage: python microlens_image.py <image> <output>"
@@ -115,5 +170,5 @@ if __name__ == '__main__':
     # Load image from command line argument
     im = load_image(sys.argv[1])
     
-    warp_image(im, np.array([0, 0])*u.mas, sys.argv[2])
-    
+    #warp_image(im, np.array([0, 0])*u.mas, sys.argv[2])
+    animateWarping(im, outputPath=sys.argv[2], nFrames=100)
