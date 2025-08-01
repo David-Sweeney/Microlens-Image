@@ -9,10 +9,9 @@ import astropy.constants as cst
 import astropy.units as u
 from scipy.interpolate import RegularGridInterpolator
 from skimage.measure import block_reduce
-from lensing_event_rate import getProperMotion
+from lensing_event_rate import getProperMotion, getBHDistances
 
 # Make warping image an animation: try mpl.animation (matplotlib.animation)
-# Move BH_centre across image
 import matplotlib.animation as animation
 from matplotlib.animation import PillowWriter
 
@@ -21,13 +20,13 @@ interpolate_value = 0.
 
 M_lens = 8*u.M_sun # Mass of lensing object  # Greater mass = greater lensing
 D_os = 1000*u.kpc # Distance to background source # Greater distance = greater lensing
-D_ol = 80*u.pc # Distance to lensing object # Greater distnace = less lensing
+D_ol = 20*u.pc # Distance to lensing object # Greater distnace = less lensing
 D_ls = D_os - D_ol.to(u.kpc) # Distance between lens and source
 
 # Einstein radius (gravitational lensing angle) in milliarcseconds
 theta_E_rad = np.sqrt((4*cst.G*M_lens)/(cst.c**2) * (D_ls/(D_ol*D_os))) * u.rad
 theta_E = theta_E_rad.to(u.mas)
-print(f"Einstein radius: {theta_E:.1f}")
+print(f"Einstein radius: {theta_E:.4f}")
 
 
 def load_image(filepath, downsample=None):
@@ -48,14 +47,13 @@ def lens_to_source_plane(theta, mass, D_L, D_LS):
 
     return theta*(1 - (4*cst.G*mass)/(cst.c**2*D_L * sep**2) * (D_LS/D_L)) # Lensing formula
 
+
 def get_axes(im):
     """Simplified axis generation - fixed scale in mas"""
-    fieldOfView = 200000  # Field of view in mas # Equal to 3 arcminutes
+    fieldOfView = 200000*14  # Field of view in mas # Equal to 3 arcminutes
     xs = np.linspace(-fieldOfView/2, fieldOfView/2, im.shape[0])
     ys = np.linspace(-fieldOfView/2, fieldOfView/2, im.shape[1])
 
-    # xs = np.linspace(-10, 10, im.shape[0])  # Fixed 20mas FOV
-    # ys = np.linspace(-10, 10, im.shape[1])  # Matches image aspect ratio
     return xs, ys
 
 
@@ -78,6 +76,9 @@ def apply_lensing(BH_centre, interpolators, xv, yv):
     xx = xv - BH_centre[0]
     yy = yv - BH_centre[1]
     
+    theta_original = np.array([xx, yy])*u.mas
+    theta_lensed = lens_to_source_plane(theta_original, M_lens, D_ol, D_ls)
+    
     # Calculate lens distortion
     xx, yy = lens_to_source_plane(np.array([xx, yy])*u.mas, M_lens, D_ol, D_ls)
     
@@ -90,7 +91,8 @@ def apply_lensing(BH_centre, interpolators, xv, yv):
 def warp_image(im, BH_centre, filepath):
     # Train interpolators on original image
     #xs, ys = get_axes(im, margin_factor = 8)
-    xs, ys = get_axes(im, margin_factor = 8)
+    #xs, ys = get_axes(im, margin_factor = 8)
+    xs, ys = get_axes(im)
     interpolators = get_interpolators(im, xs, ys, interpolate_value=0.)
     extent = np.array([xs.min(), xs.max(), ys.min(), ys.max()])
     
@@ -110,8 +112,10 @@ def warp_image(im, BH_centre, filepath):
     
     multipliers = np.geomspace(1, 1.2, 20)
     alphas = np.exp(-3*(np.arange(len(multipliers))/len(multipliers)))
-    for multiplier, alpha in zip(multipliers, alphas):
-        ax.add_patch(mpl.patches.Circle(BH_centre.to(u.mas).value, radius=1.9*multiplier, alpha=alpha, fill=True, fc='k', ec=None))
+    for multiplier, alpha in zip(multipliers, alphas):  
+        print(f"Einstein Radius: {theta_E.value}")
+        print(1.9*multiplier)
+        ax.add_patch(mpl.patches.Circle(BH_centre.to(u.mas).value, radius=theta_E.value, alpha=alpha, fill=True, fc='k', ec=None))
     plt.savefig(filepath)
 
 def animateWarping(im, outputPath = "microlensAnimation.gif", nFrames = 100):
@@ -152,18 +156,23 @@ def animateWarping(im, outputPath = "microlensAnimation.gif", nFrames = 100):
 #     print(f"Animation saved to: {outputPath}")
 
 def animateBHLensing(im, iPosition, fPosition, outputPath='blackHoleSim.gif', nFrames=100):
-    # Physical setup (adjusted for visible effect)
-    # M_lens = 1000*u.M_sun  # More massive lens for visible effect
-    # D_os = 8*u.kpc         # More reasonable distance
-    # D_ol = 4*u.kpc
     
     xs, ys = get_axes(im)
     interpolators = get_interpolators(im, xs, ys, interpolate_value=0.)
     extent = np.array([xs.min(), xs.max(), ys.min(), ys.max()])
 
-    fig, ax = plt.subplots(figsize=(10, 10*im.shape[1]/im.shape[0]), dpi=150)
-    ax.set_xlim(extent[0], extent[1])
-    ax.set_ylim(extent[2], extent[3])
+    print(f"Debugging Stuff")
+    print(f"X axis range: x=[{xs.min():.1f}, {xs.max():.1f}] mas")
+    print(f"Y axis range: y=[{ys.min():.1f}, {ys.max():.1f}] mas")
+    print(f"Einstein radius: {theta_E.value:.1f} mas")
+    print(f"Einstein radius as fraction of image width: {theta_E.value/(xs.max()-xs.min()):.6f}")
+
+    #fig, ax = plt.subplots(figsize=(10, 10*im.shape[1]/im.shape[0]), dpi=150)
+    fig = plt.figure(figsize=(15, 15), dpi=100)
+    ax = plt.Axes(fig, [0., 0., 1., 1.])
+    fig.add_axes(ax)
+    #ax.set_xlim(extent[0], extent[1])
+    #ax.set_ylim(extent[2], extent[3])
     ax.axis('off')
 
     xv, yv = np.meshgrid(xs, ys) * u.mas
@@ -173,6 +182,7 @@ def animateBHLensing(im, iPosition, fPosition, outputPath='blackHoleSim.gif', nF
     marker = plt.Circle((0, 0), radius=0.1, color='red', alpha=0.8, zorder=100)
     ax.add_patch(marker)
 
+
     # Convert positions to display coordinates
     init_ra, init_dec = iPosition[0][0].to(u.mas).value, iPosition[0][1].to(u.mas).value
     final_ra, final_dec = fPosition[0][0].to(u.mas).value, fPosition[0][1].to(u.mas).value
@@ -181,31 +191,35 @@ def animateBHLensing(im, iPosition, fPosition, outputPath='blackHoleSim.gif', nF
     all_ra = np.array([init_ra, final_ra])
     all_dec = np.array([init_dec, final_dec])
     
-    scale_factor = min(
+    scale = min(
         (extent[1] - extent[0]) / (all_ra.max() - all_ra.min()) * 0.8,
         (extent[3] - extent[2]) / (all_dec.max() - all_dec.min()) * 0.8
     )
-    
+
     def moveFrame(frame):
         fractional = frame / (nFrames - 1)
         
         # Calculate true BH position
         ra = init_ra + fractional * (final_ra - init_ra)
         dec = init_dec + fractional * (final_dec - init_dec)
-        
+
         # Scale position for display
-        ra_display = (ra - all_ra.mean()) * scale_factor
-        dec_display = (dec - all_dec.mean()) * scale_factor
-        
+        ra_display = (ra - all_ra.mean()) * scale
+        dec_display = (dec - all_dec.mean()) * scale
+        #print(f"RA Display: {ra_display}")
+        #print(f"DEC Display: {dec_display}")
+
         # Update marker position
         marker.center = (ra_display, dec_display)
         
-        # Apply lensing at display position (not TRUE position)
+        # Apply lensing at display position (not TRUE position) 
         BH_centre = np.array([ra_display, dec_display]) * u.mas
+        #BH_centre = np.array([ra, dec]) * u.mas
         warped = apply_lensing(BH_centre, interpolators, xv, yv)
         imDisplay.set_data(warped)
 
         return [imDisplay, marker]
+
 
     # Save animation
     writer = PillowWriter(fps=30)
@@ -218,11 +232,11 @@ def animateBHLensing(im, iPosition, fPosition, outputPath='blackHoleSim.gif', nF
     
 #     # Load image from command line argument
 #     im = load_image(sys.argv[1])
-#     iPosition, fPosition = getProperMotion(n=30, years=1)
+#     iPosition, fPosition = getProperMotion(n=30, years=5)
 
-#     # warp_image(im, np.array([0, 0])*u.mas, sys.argv[2])
+#     warp_image(im, np.array([0, 0])*u.mas, sys.argv[2])
 #     #animateWarping(im, outputPath=sys.argv[2], nFrames=100)
-#     animateBHLensing(im, [iPosition[0]], [fPosition[0]], outputPath=sys.argv[2], nFrames=100)
+#     #animateBHLensing(im, [iPosition[0]], [fPosition[0]], outputPath=sys.argv[2], nFrames=100)
 
 if __name__ == '__main__':
     assert len(sys.argv) == 3, "Usage: python microlens_image.py <image> <output_folder>"
@@ -234,14 +248,10 @@ if __name__ == '__main__':
 
     # Load image from command line argument
     im = load_image(sys.argv[1])
-    print(f"Image loaded - shape: {im.shape}, dtype: {im.dtype}, range: [{im.min()}, {im.max()}]")
-    plt.imshow(im)
-    plt.title("Original Image Check")
-    plt.savefig("image_check.png")
-    print("Saved image_check.png - please verify this looks correct")
     
     # Get positions for all black holes
-    iPosition, fPosition = getProperMotion(n=300, years=5)
+    #iPosition, fPosition = getProperMotion(n=100000, years=5)
+    iPosition, fPosition = getBHDistances(n=100000, years=5)
     
     # Filter for BHs with |μ| ≥ 0.01 arcsec/yr
     highMotionBH = []
